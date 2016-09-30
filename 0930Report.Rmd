@@ -1,0 +1,236 @@
+---
+title: "0930Report--Codebook and Explorartory Analysis"
+author: "Boyang Zhang"
+output: pdf_document
+---
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+library(dplyr)
+library(dplyr)
+library(foreign)
+library(haven)
+library(zoo)
+library(maps)
+library(ggmap)
+library(ggplot2)
+source("http://peterhaschke.com/Code/multiplot.R")
+
+data_path=paste0(getwd(),"/data/raw_data/")
+
+##2015
+data_path2015=paste0(data_path,"2015")
+#file2015=list.files(data_path2015)
+source(file.path("R_code","1-function.R"))
+```
+
+
+###Introduction
+
+
+The data used in this research is obtained from the Fatality Analysis Reporting System of the National Highway Traffic Safety Administration, focused on the Maryland and Washington, DC area from years 2011 to 2015. Other information, such as total population and total vehicle miles traveled, could be obtained from State Traffic Safety Information and other resources. Our main goal was to identify communities that might be at a higher risk of crashes in MD and DC area. If plausbile, we could broaden our analysis on national level, i.e. identify states that might be at a higher risk of crashes. Another option would be analyzing FARS dataset from crash level, vehicle level and person level respectively.
+
+
+```{r 2011-2015 accident files,echo=FALSE}
+####2011-2015 trend accident
+#merge data from 2011-2015
+acc1=filter_dat(file.path(paste0(data_path,"2011"),"accident.sas7bdat"))
+acc2=filter_dat(file.path(paste0(data_path,"2012"),"accident.sas7bdat"))
+acc3=filter_dat(file.path(paste0(data_path,"2013"),"accident.sas7bdat"))
+acc4=filter_dat(file.path(paste0(data_path,"2014"),"accident.sas7bdat"))
+acc5=filter_dat(file.path(paste0(data_path,"2015"),"accident.sas7bdat"))
+
+acc_tmp=subset(rbind(acc1,acc2,acc3,acc4),select = -`road_fnc`)
+acc5=subset(acc5,select = -c(`func_sys`,`rd_owner`,`rur_urb`))
+acc=rbind(acc_tmp,acc5)
+
+acc$typ_int=ifelse(acc$typ_int==98 |acc$typ_int==99,NA,acc$typ_int)
+```
+
+
+####Accident file(2011-2015):
+
+
+Among `r dim(acc)[1]` accidents and `r sum(acc$fatals)` fatalities, several crash-level related factors are listed as follows. Here, we merged data based on common columns shared by accident data files from 2011 to 2015.
+    
+__1. Time-varying variables__
+
+* Seasonality (month): there is no extreme difference across months
+* Day of week: on Mondays and Sundays, accidents are more likely to happen in MD and DC area.
+
+__2. Geographical factors__
+
+* Intersection type: most of the accidents do not occur in intersection area and remaining accidents are mostly occurred in four-way intersection and T intersection.
+* National highway system: among all accidents, a quarter of accidents are in NHS.
+* Trafficway: identify specific roads
+
+__3. Enviornmental factors__
+
+* Light condition: indicate type/level of light that existed at the time of the crash( day or night). 
+* Weather: summary of weather condition. Most of the accidents do not occur during adverse weather conditions.
+	
+__4. Information about crash__
+
+* Number of persons not in vehicles in transport: most of the accidents do not involve other person outside transporting vehicle, but still a quarter involves other people outside the car.
+* Number of persons in transporting vehicle ranging from 1 to 18.
+* First harmful events(accidents): first cause of crash and the top 5 harmful events are namely, vehicle in transport, pedestrian, tree, curb and guardrail face.
+* Crash related factors: This contains too much missingness. Similar information can also be obtained from vehicle files and person files (vehicle-level related factors, driver-level related factors and person-level related factors in the Person data file). 
+* Drunk drivers: There are `r sum(acc$drunk_dr!=0)` drunk driving cases.
+
+
+__Explorartory analysis__
+
+
+__Time varying factors__
+
+
+```{r exploratory analysis of accident files,echo=FALSE}
+#exploratory analysis: time-varying
+acc_month_sum=acc %>% group_by(year,month) %>%
+    summarize(total=n(),fatal=sum(fatals)) %>%
+    mutate(ym=as.Date(as.yearmon(paste(year,month,sep="/"),"%Y/%m")))
+
+
+plot(acc_month_sum$ym,acc_month_sum$total,type="l",col="blue",lwd=2,xlab="Year",ylab="Total number",main="Trend of #accidents/fatalities across year")
+lines(acc_month_sum$ym,acc_month_sum$fatal,col="red",lty=2,lwd=2)
+legend("bottomleft",legend=c("accident","fatalities"),col=c("blue","red"),lwd=rep(2,2),lty=1:2)
+
+
+acc_day_sum=acc %>% group_by(day_week) %>%
+    summarize(total=n(),fatal=sum(fatals)) 
+with(acc_day_sum,plot(day_week,total,type="n",xlab="Day of week",ylab="Total number",main="Trend of #accidents in a week",ylim=c(range(total)[1],range(fatal)[2])))
+
+# for(i in 1:length(unique(acc_day_sum$year))){
+#     k=2010+i
+#     with(acc_day_sum,lines(day_week[which(year==k)],total[which(year==k)],col=i,lwd=2))
+# }
+
+with(acc_day_sum,lines(day_week,total,col="blue",lwd=2))
+with(acc_day_sum,lines(day_week,fatal,col="red",lwd=2,lty=2))   
+legend("bottomright",legend=c("accident","fatalities"),col=c("blue","red"),lwd=rep(2,2),lty=1:2)
+```
+
+
+__Geographical factors__
+
+
+```{r geographical information,warning=FALSE,message=FALSE,echo=FALSE}
+#exploratory analysis: Geographical factors
+#mapping
+# acc2011=subset(acc,year==2011)
+# acc2012=subset(acc,year==2012)
+# acc2013=subset(acc,year==2013)
+# acc2014=subset(acc,year==2014)
+# acc2015=subset(acc,year==2015)
+
+map_center=apply(acc[,c('longitud','latitude')],2,median)
+map=ggmap(get_map(map_center, zoom=10,maptype = "roadmap",source="google"))
+
+p1=map+geom_point(aes(x=longitud,y=latitude),data = acc1,col="red",alpha=0.4)+ggtitle("Map of accidents in 2011")+xlab("longitude")+ylab("latitude")
+p2=map+geom_point(aes(x=longitud,y=latitude),data = acc2,col="red",alpha=0.4)+ggtitle("Map of accidents in 2012")+xlab("longitude")+ylab("latitude")
+p3=map+geom_point(aes(x=longitud,y=latitude),data = acc3,col="red",alpha=0.4)+ggtitle("Map of accidents in 2013")+xlab("longitude")+ylab("latitude")
+p4=map+geom_point(aes(x=longitud,y=latitude),data = acc4,col="red",alpha=0.4)+ggtitle("Map of accidents in 2014")+xlab("longitude")+ylab("latitude")
+p5=map+geom_point(aes(x=longitud,y=latitude),data = acc5,col="red",alpha=0.4)+ggtitle("Map of accidents in 2015")+xlab("longitude")+ylab("latitude")
+
+multiplot(p1, p2, cols=2)
+
+#intersection type
+acc_int_sum=acc %>% group_by(year,typ_int) %>%
+    summarize(total=n(),fatal=sum(fatals))
+
+```
+
+
+
+
+```{r 2011-2015 vehicle files,echo=FALSE}
+veh2011=filter_dat(file.path(paste0(data_path,"2011"),"vehicle.sas7bdat"))
+veh2012=filter_dat(file.path(paste0(data_path,"2012"),"vehicle.sas7bdat"))
+veh2013=filter_dat(file.path(paste0(data_path,"2013"),"vehicle.sas7bdat"))
+veh2014=filter_dat(file.path(paste0(data_path,"2014"),"vehicle.sas7bdat"))
+veh2015=filter_dat(file.path(paste0(data_path,"2015"),"vehicle.sas7bdat"))
+
+veh_tmp=rbind(veh2013,veh2014,veh2015)
+mutual_col=intersect(sort(colnames(veh2011)),sort(colnames(veh2013)))
+veh2011=subset(veh2011,select=mutual_col)
+veh2012=subset(veh2012,select=mutual_col)
+
+veh=rbind(veh2011,veh2012,veh_tmp)
+
+veh$acc_type=with(veh,ifelse(acc_type==0,0,
+                        ifelse(acc_type<=16,1,
+                          ifelse(acc_type<=49,2,
+                            ifelse(acc_type<=67,3,
+                              ifelse(acc_type<=85,4,
+                                ifelse(acc_type<=91,5,6)))))))
+                                                                                    
+
+```
+
+
+####Vehicle file and its related multiple related files(2011-2015):
+
+
+Among `r dim(veh)[1]` vehicles involved in accidents during 2011 to 2015 period, several vehicle-level related factors are listed as follows. Here, we looked into its related multiple related files and found that 3 additional files could be useful for further analysis. Also, we merged data based on common columns shared by vehicle data files from 2011 to 2015.
+
+
+__1. Basic information__
+
+* Number of occupants in each vehicle
+* Vehicle number: consecutive numbers of each accident, where 0 represents non-motorist in person file. It ranges 1-5, indicating that most adverse situation would involve 5 vehicles.
+* Body type: classification of vehicle. Top five categories of accident-related cars for past 5 years are: 4-door sedan, compact utility, motorcycle, standard pickup and 2-door sedan/coupe.
+
+
+__2. Crash-related variables__
+
+* Hit and run: 145 hit and run cases for past 5 years.
+* Extent of damage: most of the crashed cars lead to disabling damage, followed by functionl damage.
+* Most harmful events(vehicle):  top 3 accident-related harmful events to a vehicle are vehicle in transport, pedestrian and tree.
+* Crash type based on first harmful events and previous circumstances (re-categorize into 6 categories): single driver, same trafficway opposite direction, changing trafficway, intersecting path and miscellaneous.
+* Pre-existing vehicle defects: in <code>Factor</code> file (multiple responses)
+
+__3. Driver-related factors__
+
+* Driver's distraction: in <code>Distract</code> file (multiple responses)
+* Driver's physical condition: in <code>DrImpair</code> file (multiple responses)
+* Previous recorded crashes/suspension/revocation/speeding: needed to be recoded to 3 levels (i.e.,never,moderate,serious)
+
+
+
+```{r 2011-2015 person files,echo=FALSE}
+per2011=filter_dat(file.path(paste0(data_path,"2011"),"person.sas7bdat"))
+per2012=filter_dat(file.path(paste0(data_path,"2012"),"person.sas7bdat"))
+per2013=filter_dat(file.path(paste0(data_path,"2013"),"person.sas7bdat"))
+per2014=filter_dat(file.path(paste0(data_path,"2014"),"person.sas7bdat"))
+per2015=filter_dat(file.path(paste0(data_path,"2015"),"person.sas7bdat"))
+
+mutual_col_per=intersect(intersect(intersect(colnames(per2011),colnames(per2012)),colnames(per2013)),colnames(per2015))
+
+per2011=subset(per2011,select=mutual_col_per)
+per2012=subset(per2012,select=mutual_col_per)
+per2013=subset(per2013,select=mutual_col_per)
+per2014=subset(per2014,select=mutual_col_per)
+per2015=subset(per2015,select=mutual_col_per)
+
+
+per=rbind(per2011,per2012,per2013,per2014,per2015)
+```
+
+
+####Person file and its related multiple responses files
+
+
+Among `r dim(per)[1]` people who are involved in accidents, the following are some important factors.
+Here, we merged data based on common columns shared by person data files from 2011 to 2015.
+
+* Age/sex/race: demographic information.
+* Injury severity: nearly half of people are fatally injured, followed by no injury, minor injury, serious injury.
+* Seat position: for those who are in a vehicle, front seat is potential risk position.
+* Air bag deployed: missingness
+* Alchol/drug usage: missingness
+
+
+
+
+
+
+
